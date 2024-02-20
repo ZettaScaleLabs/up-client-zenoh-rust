@@ -12,20 +12,20 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use async_trait::async_trait;
-use protobuf::Enum;
+//use prost::Message;
+use protobuf::{Enum, Message};
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex,
 };
 use std::time::Duration;
-use up_rust::uprotocol::UUID;
 use up_rust::{
     rpc::{CallOptions, RpcClient, RpcClientResult, RpcMapperError, RpcServer},
     transport::{datamodel::UTransport, validator::Validators},
     uprotocol::{
         Data, UAttributes, UCode, UMessage, UMessageType, UPayload, UPayloadFormat, UPriority,
-        UStatus, UUri,
+        UStatus, UUri, UUID,
     },
     uri::{
         serializer::{MicroUriSerializer, UriSerializer},
@@ -62,17 +62,10 @@ fn to_upayload_format(encoding: &Encoding) -> Option<UPayloadFormat> {
 //       Transform all members first and then exclude some we don't need
 fn uattributes_to_attachment(uattributes: &UAttributes) -> AttachmentBuilder {
     let mut attachment = AttachmentBuilder::new();
-    attachment.insert("id", &uattributes.id.to_string());
-    attachment.insert("type_", &uattributes.type_.value().to_string());
-    // TODO: Should we consider about the LongUri case?
-    attachment.insert(
-        "source",
-        &MicroUriSerializer::serialize(&uattributes.source).unwrap(),
-    );
-    attachment.insert(
-        "sink",
-        &MicroUriSerializer::serialize(&uattributes.sink).unwrap(),
-    );
+    attachment.insert("id", &uattributes.id.write_to_bytes().unwrap());
+    attachment.insert("type_", &uattributes.type_.unwrap().to_type_string());
+    attachment.insert("source", &uattributes.source.write_to_bytes().unwrap());
+    attachment.insert("sink", &uattributes.sink.write_to_bytes().unwrap());
     // TODO: Check whether request & response need priority or not
     attachment.insert("priority", &uattributes.priority.value().to_string());
     if let Some(ttl) = uattributes.ttl {
@@ -84,7 +77,7 @@ fn uattributes_to_attachment(uattributes: &UAttributes) -> AttachmentBuilder {
     if let Some(commstatus) = uattributes.commstatus {
         attachment.insert("commstatus", &commstatus.to_string());
     }
-    attachment.insert("reqid", &uattributes.reqid.to_string());
+    attachment.insert("reqid", &uattributes.reqid.write_to_bytes().unwrap());
     if let Some(token) = uattributes.token.clone() {
         attachment.insert("token", &token);
     }
@@ -99,49 +92,64 @@ fn uattributes_to_attachment(uattributes: &UAttributes) -> AttachmentBuilder {
 fn attachment_to_uattributes(attachment: &Attachment) -> Option<UAttributes> {
     let mut uattributes = UAttributes::new();
     if let Some(id) = attachment.get(&"id".as_bytes()) {
-        let uuid = id.to_string().parse::<UUID>().unwrap();
+        let uuid = UUID::parse_from_bytes(&id).unwrap();
         uattributes.id = Some(uuid).into();
     } else {
         return None;
     }
     if let Some(type_) = attachment.get(&"type_".as_bytes()) {
-        let uuid = UMessageType::from_i32_string(type_.to_string());
+        let uuid = UMessageType::from_type_string(type_.to_string());
         uattributes.type_ = uuid.into();
     } else {
         return None;
     }
     if let Some(source) = attachment.get(&"source".as_bytes()) {
-        let source = MicroUriSerializer::deserialize(source.to_vec()).unwrap();
+        let source = UUri::parse_from_bytes(&source).unwrap();
         uattributes.source = Some(source).into();
     } else {
         return None;
     }
     if let Some(sink) = attachment.get(&"sink".as_bytes()) {
-        let sink = MicroUriSerializer::deserialize(sink.to_vec()).unwrap();
+        let sink = UUri::parse_from_bytes(&sink).unwrap();
         uattributes.sink = Some(sink).into();
     } else {
         return None;
     }
     if let Some(priority) = attachment.get(&"priority".as_bytes()) {
-        let priority = UPriority::from_i32(priority.to_string().parse().unwrap()).unwrap();
+        let priority = UPriority::from_i32(
+            String::from_utf8(priority.to_vec())
+                .unwrap()
+                .parse()
+                .unwrap(),
+        )
+        .unwrap();
         uattributes.priority = priority.into();
     } else {
         return None;
     }
     if let Some(ttl) = attachment.get(&"ttl".as_bytes()) {
-        let ttl = ttl.to_string().parse::<i32>().unwrap();
+        let ttl = String::from_utf8(ttl.to_vec())
+            .unwrap()
+            .parse::<i32>()
+            .unwrap();
         uattributes.ttl = Some(ttl);
     }
     if let Some(permission_level) = attachment.get(&"permission_level".as_bytes()) {
-        let permission_level = permission_level.to_string().parse::<i32>().unwrap();
+        let permission_level = String::from_utf8(permission_level.to_vec())
+            .unwrap()
+            .parse::<i32>()
+            .unwrap();
         uattributes.permission_level = Some(permission_level);
     }
     if let Some(commstatus) = attachment.get(&"commstatus".as_bytes()) {
-        let commstatus = commstatus.to_string().parse::<i32>().unwrap();
+        let commstatus = String::from_utf8(commstatus.to_vec())
+            .unwrap()
+            .parse::<i32>()
+            .unwrap();
         uattributes.commstatus = Some(commstatus);
     }
     if let Some(reqid) = attachment.get(&"reqid".as_bytes()) {
-        let reqid = reqid.to_string().parse::<UUID>().unwrap();
+        let reqid = UUID::parse_from_bytes(&reqid).unwrap();
         uattributes.reqid = Some(reqid).into();
     } else {
         return None;
@@ -348,8 +356,10 @@ impl RpcClient for UPClientZenoh {
             )));
         };
 
-        // TODO: Check how to generate uAttributes
-        let uattributes = UAttributes::new();
+        // TODO: Check how to generate uAttributes, ex: source, reqid...
+        let mut uattributes = UAttributes::new();
+        uattributes.source = Some(topic).into();
+        uattributes.reqid = Some(UUID::default()).into();
         let attachment = uattributes_to_attachment(&uattributes);
 
         let value = Value::new(buf.into()).encoding(Encoding::WithSuffix(
