@@ -11,11 +11,10 @@ pedantic = "deny"
 #nursery = "deny"
 
 [dependencies]
-up-rust = { git = "https://github.com/eclipse-uprotocol/up-rust", branch = "main" }
+up-rust = { git = "https://github.com/eclipse-uprotocol/up-rust", branch = "cb5deec4581eb6c386941f54e7e33488060fb36a" }
 prost = "0.12"
 prost-types = "0.12"
 protobuf = { version = "3.3" }
-cloudevents-sdk = { version = "0.7.0" }
 zenoh = { version = "0.10.1-rc", features = ["unstable"]}
 async-trait = "0.1"
 async-std = "1.12.0"
