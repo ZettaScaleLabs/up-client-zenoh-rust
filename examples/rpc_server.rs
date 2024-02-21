@@ -13,8 +13,7 @@
 //
 use async_std::task::{self, block_on};
 use chrono::Utc;
-use std::sync::Arc;
-use std::time;
+use std::{sync::Arc, time};
 use up_rust::{
     rpc::RpcServer,
     transport::datamodel::UTransport,

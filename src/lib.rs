@@ -13,13 +13,14 @@
 //
 use async_trait::async_trait;
 use protobuf::{Enum, Message};
-use std::collections::HashMap;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc, Mutex,
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
 };
-use std::time::Duration;
-use up_rust::uuid::builder::UUIDBuilder;
 use up_rust::{
     rpc::{CallOptions, RpcClient, RpcClientResult, RpcMapperError, RpcServer},
     transport::{datamodel::UTransport, validator::Validators},
@@ -31,6 +32,7 @@ use up_rust::{
         serializer::{MicroUriSerializer, UriSerializer},
         validator::UriValidator,
     },
+    uuid::builder::UUIDBuilder,
 };
 use zenoh::{
     config::Config,
