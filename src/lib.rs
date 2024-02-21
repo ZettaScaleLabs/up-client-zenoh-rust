@@ -59,12 +59,19 @@ fn to_upayload_format(encoding: &Encoding) -> Option<UPayloadFormat> {
 
 // TODO: Transformation between uAttributes and attachment
 //       Transform all members first and then exclude some we don't need
-fn uattributes_to_attachment(uattributes: &UAttributes) -> AttachmentBuilder {
+fn uattributes_to_attachment(uattributes: &UAttributes) -> anyhow::Result<AttachmentBuilder> {
     let mut attachment = AttachmentBuilder::new();
-    attachment.insert("id", &uattributes.id.write_to_bytes().unwrap());
-    attachment.insert("type_", &uattributes.type_.unwrap().to_type_string());
-    attachment.insert("source", &uattributes.source.write_to_bytes().unwrap());
-    attachment.insert("sink", &uattributes.sink.write_to_bytes().unwrap());
+    attachment.insert("id", &uattributes.id.write_to_bytes()?);
+    attachment.insert(
+        "type_",
+        &uattributes
+            .type_
+            .enum_value()
+            .map_err(|_| UStatus::fail_with_code(UCode::INTERNAL, "Unable to parse type"))?
+            .to_type_string(),
+    );
+    attachment.insert("source", &uattributes.source.write_to_bytes()?);
+    attachment.insert("sink", &uattributes.sink.write_to_bytes()?);
     // TODO: Check whether request & response need priority or not
     attachment.insert("priority", &uattributes.priority.value().to_string());
     if let Some(ttl) = uattributes.ttl {
@@ -76,82 +83,68 @@ fn uattributes_to_attachment(uattributes: &UAttributes) -> AttachmentBuilder {
     if let Some(commstatus) = uattributes.commstatus {
         attachment.insert("commstatus", &commstatus.to_string());
     }
-    attachment.insert("reqid", &uattributes.reqid.write_to_bytes().unwrap());
+    attachment.insert("reqid", &uattributes.reqid.write_to_bytes()?);
     if let Some(token) = uattributes.token.clone() {
         attachment.insert("token", &token);
     }
     if let Some(traceparent) = uattributes.traceparent.clone() {
         attachment.insert("traceparent", &traceparent);
     }
-    attachment
+    Ok(attachment)
 }
 
 // TODO: Same as uattributes_to_attachment
-// TODO: Remove unwrap()
-fn attachment_to_uattributes(attachment: &Attachment) -> Option<UAttributes> {
+fn attachment_to_uattributes(attachment: &Attachment) -> anyhow::Result<UAttributes> {
     let mut uattributes = UAttributes::new();
     if let Some(id) = attachment.get(&"id".as_bytes()) {
-        let uuid = UUID::parse_from_bytes(&id).unwrap();
+        let uuid = UUID::parse_from_bytes(&id)?;
         uattributes.id = Some(uuid).into();
     } else {
-        return None;
+        return Err(UStatus::fail_with_code(UCode::INTERNAL, "Unable to parse id").into());
     }
     if let Some(type_) = attachment.get(&"type_".as_bytes()) {
         let uuid = UMessageType::from_type_string(type_.to_string());
         uattributes.type_ = uuid.into();
     } else {
-        return None;
+        return Err(UStatus::fail_with_code(UCode::INTERNAL, "Unable to parse type_").into());
     }
     if let Some(source) = attachment.get(&"source".as_bytes()) {
-        let source = UUri::parse_from_bytes(&source).unwrap();
+        let source = UUri::parse_from_bytes(&source)?;
         uattributes.source = Some(source).into();
     } else {
-        return None;
+        return Err(UStatus::fail_with_code(UCode::INTERNAL, "Unable to parse source").into());
     }
     if let Some(sink) = attachment.get(&"sink".as_bytes()) {
-        let sink = UUri::parse_from_bytes(&sink).unwrap();
+        let sink = UUri::parse_from_bytes(&sink)?;
         uattributes.sink = Some(sink).into();
     } else {
-        return None;
+        return Err(UStatus::fail_with_code(UCode::INTERNAL, "Unable to parse sink").into());
     }
     if let Some(priority) = attachment.get(&"priority".as_bytes()) {
-        let priority = UPriority::from_i32(
-            String::from_utf8(priority.to_vec())
-                .unwrap()
-                .parse()
-                .unwrap(),
-        )
-        .unwrap();
+        let priority = UPriority::from_i32(String::from_utf8(priority.to_vec())?.parse()?).ok_or(
+            UStatus::fail_with_code(UCode::INTERNAL, "Wrong priority type"),
+        )?;
         uattributes.priority = priority.into();
     } else {
-        return None;
+        return Err(UStatus::fail_with_code(UCode::INTERNAL, "Unable to parse priority").into());
     }
     if let Some(ttl) = attachment.get(&"ttl".as_bytes()) {
-        let ttl = String::from_utf8(ttl.to_vec())
-            .unwrap()
-            .parse::<i32>()
-            .unwrap();
+        let ttl = String::from_utf8(ttl.to_vec())?.parse::<i32>()?;
         uattributes.ttl = Some(ttl);
     }
     if let Some(permission_level) = attachment.get(&"permission_level".as_bytes()) {
-        let permission_level = String::from_utf8(permission_level.to_vec())
-            .unwrap()
-            .parse::<i32>()
-            .unwrap();
+        let permission_level = String::from_utf8(permission_level.to_vec())?.parse::<i32>()?;
         uattributes.permission_level = Some(permission_level);
     }
     if let Some(commstatus) = attachment.get(&"commstatus".as_bytes()) {
-        let commstatus = String::from_utf8(commstatus.to_vec())
-            .unwrap()
-            .parse::<i32>()
-            .unwrap();
+        let commstatus = String::from_utf8(commstatus.to_vec())?.parse::<i32>()?;
         uattributes.commstatus = Some(commstatus);
     }
     if let Some(reqid) = attachment.get(&"reqid".as_bytes()) {
-        let reqid = UUID::parse_from_bytes(&reqid).unwrap();
+        let reqid = UUID::parse_from_bytes(&reqid)?;
         uattributes.reqid = Some(reqid).into();
     } else {
-        return None;
+        return Err(UStatus::fail_with_code(UCode::INTERNAL, "Unable to parse reqid").into());
     }
     if let Some(token) = attachment.get(&"token".as_bytes()) {
         let token = token.to_string();
@@ -161,7 +154,7 @@ fn attachment_to_uattributes(attachment: &Attachment) -> Option<UAttributes> {
         let traceparent = traceparent.to_string();
         uattributes.traceparent = Some(traceparent);
     }
-    Some(uattributes)
+    Ok(uattributes)
 }
 
 pub struct ZenohListener {}
@@ -237,7 +230,12 @@ impl UPClientZenoh {
         };
 
         // Serialized UAttributes into protobuf
-        let attachment = uattributes_to_attachment(&attributes);
+        let Ok(attachment) = uattributes_to_attachment(&attributes) else {
+            return Err(UStatus::fail_with_code(
+                UCode::INVALID_ARGUMENT,
+                "Invalid uAttributes",
+            ));
+        };
         // TODO: Check how to deal with unwrap()
         let priority = UPClientZenoh::map_zenoh_priority(attributes.priority.enum_value().unwrap());
 
@@ -276,7 +274,12 @@ impl UPClientZenoh {
         };
 
         // Serialized UAttributes into protobuf
-        let attachment = uattributes_to_attachment(&attributes);
+        let Ok(attachment) = uattributes_to_attachment(&attributes) else {
+            return Err(UStatus::fail_with_code(
+                UCode::INVALID_ARGUMENT,
+                "Invalid uAttributes",
+            ));
+        };
         // Get reqid
         let reqid = attributes.reqid.to_string();
 
@@ -359,7 +362,11 @@ impl RpcClient for UPClientZenoh {
         let mut uattributes = UAttributes::new();
         uattributes.source = Some(topic).into();
         uattributes.reqid = Some(UUID::default()).into();
-        let attachment = uattributes_to_attachment(&uattributes);
+        let Ok(attachment) = uattributes_to_attachment(&uattributes) else {
+            return Err(RpcMapperError::UnexpectedError(String::from(
+                "Invalid uAttributes",
+            )));
+        };
 
         let value = Value::new(buf.into()).encoding(Encoding::WithSuffix(
             KnownEncoding::AppCustom,
@@ -445,12 +452,16 @@ impl RpcServer for UPClientZenoh {
                 )));
                 return;
             };
-            let Some(u_attribute) = attachment_to_uattributes(attachment) else {
-                listener(Err(UStatus::fail_with_code(
-                    UCode::INTERNAL,
-                    "Unable to decode attribute",
-                )));
-                return;
+            let u_attribute = match attachment_to_uattributes(attachment) {
+                Ok(uattributes) => uattributes,
+                Err(e) => {
+                    log::error!("attachment_to_uattributes error: {:?}", e);
+                    listener(Err(UStatus::fail_with_code(
+                        UCode::INTERNAL,
+                        "Unable to decode attribute",
+                    )));
+                    return;
+                }
             };
             // Create UPayload
             let u_payload = match query.value() {
@@ -614,12 +625,16 @@ impl UTransport for UPClientZenoh {
                 )));
                 return;
             };
-            let Some(u_attribute) = attachment_to_uattributes(attachment) else {
-                listener(Err(UStatus::fail_with_code(
-                    UCode::INTERNAL,
-                    "Unable to decode attribute",
-                )));
-                return;
+            let u_attribute = match attachment_to_uattributes(attachment) {
+                Ok(uattributes) => uattributes,
+                Err(e) => {
+                    log::error!("attachment_to_uattributes error: {:?}", e);
+                    listener(Err(UStatus::fail_with_code(
+                        UCode::INTERNAL,
+                        "Unable to decode attribute",
+                    )));
+                    return;
+                }
             };
             // Create UPayload
             let Some(encoding) = to_upayload_format(&sample.encoding) else {
