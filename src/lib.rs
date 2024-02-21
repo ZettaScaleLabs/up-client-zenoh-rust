@@ -12,7 +12,6 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use async_trait::async_trait;
-//use prost::Message;
 use protobuf::{Enum, Message};
 use std::collections::HashMap;
 use std::sync::{

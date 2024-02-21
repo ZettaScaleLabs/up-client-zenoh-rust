@@ -13,7 +13,7 @@
 //
 use async_std::task;
 use std::time;
-use uprotocol_sdk::{
+use up_rust::{
     transport::datamodel::UTransport,
     uprotocol::{Data, UEntity, UMessage, UResource, UStatus, UUri},
 };
@@ -23,7 +23,7 @@ use zenoh::config::Config;
 fn callback(result: Result<UMessage, UStatus>) {
     match result {
         Ok(msg) => {
-            let uri = msg.source.unwrap().to_string();
+            let uri = msg.attributes.unwrap().source.unwrap().to_string();
             if let Data::Value(v) = msg.payload.unwrap().data.unwrap() {
                 let value = v.into_iter().map(|c| c as char).collect::<String>();
                 println!("Receiving {} from {}", value, uri);
@@ -46,13 +46,16 @@ async fn main() {
             version_major: Some(1),
             id: Some(1234),
             ..Default::default()
-        }),
+        })
+        .into(),
         resource: Some(UResource {
             name: "door".to_string(),
             instance: Some("front_left".to_string()),
             message: Some("Door".to_string()),
             id: Some(5678),
-        }),
+            ..Default::default()
+        })
+        .into(),
         ..Default::default()
     };
 
