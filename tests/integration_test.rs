@@ -247,7 +247,7 @@ async fn test_rpc_server_client() {
         .await
         .unwrap();
     // Need some time for queryable to run
-    task::sleep(time::Duration::from_millis(3000)).await;
+    task::sleep(time::Duration::from_millis(1000)).await;
 
     // TODO: Need to check whether we don't need uattributes.
     //// Create uattributes
@@ -266,9 +266,6 @@ async fn test_rpc_server_client() {
     let result = upclient_client
         .invoke_method(uuri, payload, CallOptionsBuilder::default().build())
         .await;
-
-    // Waiting for the result
-    task::sleep(time::Duration::from_millis(3000)).await;
 
     // Process the result
     if let Data::Value(v) = result.unwrap().payload.unwrap().data.unwrap() {

@@ -19,6 +19,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::time::Duration;
+use up_rust::uuid::builder::UUIDBuilder;
 use up_rust::{
     rpc::{CallOptions, RpcClient, RpcClientResult, RpcMapperError, RpcServer},
     transport::{datamodel::UTransport, validator::Validators},
@@ -132,8 +133,6 @@ fn attachment_to_uattributes(attachment: &Attachment) -> anyhow::Result<UAttribu
     if let Some(reqid) = attachment.get(&"reqid".as_bytes()) {
         let reqid = UUID::parse_from_bytes(&reqid)?;
         uattributes.reqid = Some(reqid).into();
-    } else {
-        return Err(UStatus::fail_with_code(UCode::INTERNAL, "Unable to parse reqid").into());
     }
     if let Some(token) = attachment.get(&"token".as_bytes()) {
         let token = token.to_string();
@@ -352,8 +351,9 @@ impl RpcClient for UPClientZenoh {
 
         // TODO: Check how to generate uAttributes, ex: source, reqid...
         let mut uattributes = UAttributes::new();
-        uattributes.source = Some(topic).into();
-        uattributes.reqid = Some(UUID::default()).into();
+        uattributes.source = Some(topic.clone()).into();
+        uattributes.sink = Some(topic).into();
+        uattributes.reqid = Some(UUIDBuilder::new().build()).into();
         let Ok(attachment) = uattributes_to_attachment(&uattributes) else {
             return Err(RpcMapperError::UnexpectedError(String::from(
                 "Invalid uAttributes",
@@ -563,10 +563,10 @@ impl UTransport for UPClientZenoh {
                 Validators::Publish
                     .validator()
                     .validate(&attributes)
-                    .map_err(|_| {
+                    .map_err(|e| {
                         UStatus::fail_with_code(
                             UCode::INVALID_ARGUMENT,
-                            "Wrong Response UAttributes",
+                            format!("Wrong Response UAttributes {e:?}"),
                         )
                     })?;
                 self.send_publish(&zenoh_key, payload, attributes).await
@@ -575,10 +575,10 @@ impl UTransport for UPClientZenoh {
                 Validators::Response
                     .validator()
                     .validate(&attributes)
-                    .map_err(|_| {
+                    .map_err(|e| {
                         UStatus::fail_with_code(
                             UCode::INVALID_ARGUMENT,
-                            "Wrong Response UAttributes",
+                            format!("Wrong Response UAttributes {e:?}"),
                         )
                     })?;
                 self.send_response(&zenoh_key, payload, attributes).await
