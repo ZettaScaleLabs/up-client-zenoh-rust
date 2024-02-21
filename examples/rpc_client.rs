@@ -21,6 +21,9 @@ use zenoh::config::Config;
 
 #[async_std::main]
 async fn main() {
+    // initiate logging
+    env_logger::init();
+
     println!("uProtocol RPC client example");
     let rpc_client = UPClientZenoh::new(Config::default()).await.unwrap();
 

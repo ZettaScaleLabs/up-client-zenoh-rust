@@ -23,6 +23,9 @@ use zenoh::config::Config;
 
 #[async_std::main]
 async fn main() {
+    // initiate logging
+    env_logger::init();
+
     println!("uProtocol publisher example");
     let publisher = UPClientZenoh::new(Config::default()).await.unwrap();
 

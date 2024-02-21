@@ -35,6 +35,9 @@ fn callback(result: Result<UMessage, UStatus>) {
 
 #[async_std::main]
 async fn main() {
+    // initiate logging
+    env_logger::init();
+
     println!("uProtocol subscriber example");
     let subscriber = UPClientZenoh::new(Config::default()).await.unwrap();
 

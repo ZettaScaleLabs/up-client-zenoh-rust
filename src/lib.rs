@@ -39,22 +39,11 @@ use zenoh::{
     subscriber::Subscriber,
 };
 
-// TODO: Mabye there's a nicer way transform encoding to UPayloadFormat
 fn to_upayload_format(encoding: &Encoding) -> Option<UPayloadFormat> {
     let Ok(value) = encoding.suffix().parse::<i32>() else {
         return None;
     };
-    match value {
-        0 => Some(UPayloadFormat::UPAYLOAD_FORMAT_UNSPECIFIED),
-        1 => Some(UPayloadFormat::UPAYLOAD_FORMAT_PROTOBUF_WRAPPED_IN_ANY),
-        2 => Some(UPayloadFormat::UPAYLOAD_FORMAT_PROTOBUF),
-        3 => Some(UPayloadFormat::UPAYLOAD_FORMAT_JSON),
-        4 => Some(UPayloadFormat::UPAYLOAD_FORMAT_SOMEIP),
-        5 => Some(UPayloadFormat::UPAYLOAD_FORMAT_SOMEIP_TLV),
-        6 => Some(UPayloadFormat::UPAYLOAD_FORMAT_RAW),
-        7 => Some(UPayloadFormat::UPAYLOAD_FORMAT_TEXT),
-        _ => None,
-    }
+    UPayloadFormat::from_i32(value)
 }
 
 // TODO: Transformation between uAttributes and attachment
@@ -236,8 +225,11 @@ impl UPClientZenoh {
                 "Invalid uAttributes",
             ));
         };
-        // TODO: Check how to deal with unwrap()
-        let priority = UPClientZenoh::map_zenoh_priority(attributes.priority.enum_value().unwrap());
+
+        let priority =
+            UPClientZenoh::map_zenoh_priority(attributes.priority.enum_value().map_err(|_| {
+                UStatus::fail_with_code(UCode::INVALID_ARGUMENT, "Invalid priority")
+            })?);
 
         let putbuilder = self
             .session
@@ -545,9 +537,14 @@ impl RpcServer for UPClientZenoh {
 #[async_trait]
 impl UTransport for UPClientZenoh {
     async fn send(&self, message: UMessage) -> Result<(), UStatus> {
-        // TODO: Should avoid unwrap()
-        let payload = message.payload.unwrap();
-        let attributes = message.attributes.unwrap();
+        let payload = *message.payload.0.ok_or(UStatus::fail_with_code(
+            UCode::INVALID_ARGUMENT,
+            "Invalid uPayload",
+        ))?;
+        let attributes = *message.attributes.0.ok_or(UStatus::fail_with_code(
+            UCode::INVALID_ARGUMENT,
+            "Invalid uAttributes",
+        ))?;
         let topic = attributes.clone().sink;
         // Do the validation
         UriValidator::validate(&topic)
@@ -557,8 +554,11 @@ impl UTransport for UPClientZenoh {
         let zenoh_key = UPClientZenoh::to_zenoh_key_string(&topic)?;
 
         // Check the type of UAttributes (Publish / Request / Response)
-        // TODO: Need to void unwrap()
-        match attributes.type_.unwrap() {
+        match attributes
+            .type_
+            .enum_value()
+            .map_err(|_| UStatus::fail_with_code(UCode::INTERNAL, "Unable to parse type"))?
+        {
             UMessageType::UMESSAGE_TYPE_PUBLISH => {
                 Validators::Publish
                     .validator()
