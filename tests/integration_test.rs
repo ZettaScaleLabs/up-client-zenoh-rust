@@ -77,7 +77,7 @@ async fn test_utransport_register_and_unregister() {
         .register_listener(uuri.clone(), Box::new(|_| {}))
         .await
         .unwrap();
-    assert_eq!(listener_string, "0100162e04d20100_0");
+    assert_eq!(listener_string, "up/0100162e04d20100_0");
 
     // Able to ungister
     let result = upclient
@@ -109,7 +109,7 @@ async fn test_rpcserver_register_and_unregister() {
         .register_rpc_listener(uuri.clone(), Box::new(|_| {}))
         .await
         .unwrap();
-    assert_eq!(listener_string, "0100162e04d20100_0");
+    assert_eq!(listener_string, "up/0100162e04d20100_0");
 
     // Able to ungister
     let result = upclient

@@ -59,6 +59,7 @@ impl UPClientZenoh {
         })
     }
 
+    // The UURI format should be "up/<UAuthority id or ip>/<the rest of UUri>"
     fn to_zenoh_key_string(uri: &UUri) -> Result<String, UStatus> {
         let micro_uuri = MicroUriSerializer::serialize(uri).map_err(|_| {
             UStatus::fail_with_code(
@@ -66,8 +67,18 @@ impl UPClientZenoh {
                 "Unable to serialize into micro format",
             )
         })?;
-        let micro_zenoh_key: String = micro_uuri
-            .iter()
+        let mut micro_zenoh_key = String::from("up/");
+        // The part of UUri which is larger than 8 bytes belongs to uAuthority
+        // If it exists, we prepend it before the Zenoh key
+        if micro_uuri.len() > 8 {
+            micro_zenoh_key += &micro_uuri[8..]
+                .into_iter()
+                .fold(String::new(), |s, c| s + &format!("{c:02x}"));
+            micro_zenoh_key += "/";
+        }
+        // The rest part of UUri
+        micro_zenoh_key += &micro_uuri[..8]
+            .into_iter()
             .fold(String::new(), |s, c| s + &format!("{c:02x}"));
         Ok(micro_zenoh_key)
     }
@@ -342,7 +353,7 @@ mod tests {
         };
         assert_eq!(
             UPClientZenoh::to_zenoh_key_string(&uuri).unwrap(),
-            String::from("0100162e04d20100")
+            String::from("up/0100162e04d20100")
         );
     }
 }
