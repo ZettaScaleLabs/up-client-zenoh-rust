@@ -26,7 +26,7 @@ use up_rust::{
     transport::{datamodel::UTransport, validator::Validators},
     uprotocol::{
         Data, UAttributes, UCode, UMessage, UMessageType, UPayload, UPayloadFormat, UPriority,
-        UStatus, UUri, UUID,
+        UStatus, UUri,
     },
     uri::{
         serializer::{MicroUriSerializer, UriSerializer},
@@ -106,10 +106,10 @@ impl UPClientZenoh {
         UPayloadFormat::from_i32(value)
     }
 
-    // TODO: Transformation between uAttributes and attachment
-    //       Transform all members first and then exclude some we don't need
     fn uattributes_to_attachment(uattributes: &UAttributes) -> anyhow::Result<AttachmentBuilder> {
         let mut attachment = AttachmentBuilder::new();
+        attachment.insert("attr", &uattributes.write_to_bytes()?);
+        /* TODO: We send the whole uattributes directly for the time being and do the benchmark later.
         attachment.insert("id", &uattributes.id.write_to_bytes()?);
         attachment.insert(
             "type_",
@@ -139,11 +139,21 @@ impl UPClientZenoh {
         if let Some(traceparent) = uattributes.traceparent.clone() {
             attachment.insert("traceparent", &traceparent);
         }
+        */
         Ok(attachment)
     }
 
-    // TODO: Same as uattributes_to_attachment
     fn attachment_to_uattributes(attachment: &Attachment) -> anyhow::Result<UAttributes> {
+        let uattributes = UAttributes::parse_from_bytes(
+            attachment
+                .get(&"attr".as_bytes())
+                .ok_or(UStatus::fail_with_code(
+                    UCode::INTERNAL,
+                    "Unable to get uAttributes",
+                ))?
+                .as_slice(),
+        )?;
+        /* TODO: We send the whole uattributes directly for the time being and do the benchmark later.
         let mut uattributes = UAttributes::new();
         if let Some(id) = attachment.get(&"id".as_bytes()) {
             let uuid = UUID::parse_from_bytes(&id)?;
@@ -204,6 +214,7 @@ impl UPClientZenoh {
             let traceparent = traceparent.to_string();
             uattributes.traceparent = Some(traceparent);
         }
+        */
         Ok(uattributes)
     }
 
