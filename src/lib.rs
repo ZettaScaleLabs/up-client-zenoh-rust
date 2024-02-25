@@ -20,7 +20,7 @@ use std::{
     sync::{atomic::AtomicU64, Arc, Mutex},
 };
 use up_rust::{
-    uprotocol::{UAttributes, UCode, UPayloadFormat, UPriority, UStatus, UUri},
+    uprotocol::{UAttributes, UCode, UMessage, UPayloadFormat, UPriority, UStatus, UUri},
     uri::serializer::{MicroUriSerializer, UriSerializer},
 };
 use zenoh::{
@@ -31,12 +31,19 @@ use zenoh::{
     subscriber::Subscriber,
 };
 
+pub type UtransportListener = Box<dyn Fn(Result<UMessage, UStatus>) + Send + Sync + 'static>;
+
 pub struct ZenohListener {}
 pub struct UPClientZenoh {
     session: Arc<Session>,
+    // Able to unregister Subscriber
     subscriber_map: Arc<Mutex<HashMap<String, Subscriber<'static, ()>>>>,
+    // Able to unregister Queryable
     queryable_map: Arc<Mutex<HashMap<String, Queryable<'static, ()>>>>,
+    // Save the reqid to be able to send back response
     query_map: Arc<Mutex<HashMap<String, Query>>>,
+    // Save the callback for RPC response
+    rpc_callback_map: Arc<Mutex<HashMap<String, UtransportListener>>>,
     callback_counter: AtomicU64,
 }
 
@@ -55,6 +62,7 @@ impl UPClientZenoh {
             subscriber_map: Arc::new(Mutex::new(HashMap::new())),
             queryable_map: Arc::new(Mutex::new(HashMap::new())),
             query_map: Arc::new(Mutex::new(HashMap::new())),
+            rpc_callback_map: Arc::new(Mutex::new(HashMap::new())),
             callback_counter: AtomicU64::new(0),
         })
     }

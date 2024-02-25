@@ -12,6 +12,7 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use crate::UPClientZenoh;
+use async_std::task;
 use async_trait::async_trait;
 use std::{sync::atomic::Ordering, time::Duration};
 use up_rust::{
@@ -23,6 +24,7 @@ use up_rust::{
 };
 use zenoh::{
     prelude::{r#async::*, Sample},
+    query::Reply,
     queryable::Query,
 };
 
@@ -102,17 +104,79 @@ impl UPClientZenoh {
             payload.format.value().to_string().into(),
         ));
 
+        // Retrieve the callback
+        let resp_callback = self
+            .rpc_callback_map
+            .lock()
+            .unwrap()
+            .remove(zenoh_key)
+            .ok_or(UStatus::fail_with_code(
+                UCode::INTERNAL,
+                "Unable to get callback",
+            ))?;
+        let zenoh_callback = move |reply: Reply| {
+            let msg = match reply.sample {
+                Ok(sample) => {
+                    let Some(encoding) = UPClientZenoh::to_upayload_format(&sample.encoding) else {
+                        resp_callback(Err(UStatus::fail_with_code(
+                            UCode::INTERNAL,
+                            "Unable to get the encoding",
+                        )));
+                        return;
+                    };
+                    // TODO: Get the attributes
+                    // Create UAttribute
+                    let Some(attachment) = sample.attachment() else {
+                        resp_callback(Err(UStatus::fail_with_code(
+                            UCode::INTERNAL,
+                            "Unable to get attachment",
+                        )));
+                        return;
+                    };
+                    let u_attribute = match UPClientZenoh::attachment_to_uattributes(attachment) {
+                        Ok(uattr) => uattr,
+                        Err(e) => {
+                            log::error!("attachment_to_uattributes error: {:?}", e);
+                            resp_callback(Err(UStatus::fail_with_code(
+                                UCode::INTERNAL,
+                                "Unable to decode attribute",
+                            )));
+                            return;
+                        }
+                    };
+                    Ok(UMessage {
+                        attributes: Some(u_attribute).into(),
+                        payload: Some(UPayload {
+                            length: Some(0),
+                            format: encoding.into(),
+                            data: Some(Data::Value(sample.payload.contiguous().to_vec())),
+                            ..Default::default()
+                        })
+                        .into(),
+                        ..Default::default()
+                    })
+                }
+                Err(_) => Err(UStatus::fail_with_code(
+                    UCode::INTERNAL,
+                    "Error while parsing Zenoh reply",
+                )),
+            };
+            resp_callback(msg);
+        };
+
         // TODO: Adjust the timeout
-        let _getbuilder = self
+        let getbuilder = self
             .session
             .get(zenoh_key)
             .with_value(value)
             .with_attachment(attachment.build())
             .target(QueryTarget::BestMatching)
-            .timeout(Duration::from_millis(1000));
-
-        // TODO: Retrieve the callback
-        // TODO: Send the get with callback
+            .timeout(Duration::from_millis(1000))
+            .callback(zenoh_callback);
+        getbuilder.res().await.map_err(|e| {
+            log::error!("Zenoh error: {e:?}");
+            UStatus::fail_with_code(UCode::INTERNAL, "Unable to send get with Zenoh")
+        })?;
 
         Ok(())
     }
@@ -347,10 +411,29 @@ impl UPClientZenoh {
     }
     async fn register_response_listener(
         &self,
-        _topic: UUri,
-        _listener: Box<dyn Fn(Result<UMessage, UStatus>) + Send + Sync + 'static>,
+        topic: UUri,
+        listener: Box<dyn Fn(Result<UMessage, UStatus>) + Send + Sync + 'static>,
     ) -> Result<String, UStatus> {
-        Ok(String::from("Not implemented"))
+        // Get Zenoh key
+        let zenoh_key = UPClientZenoh::to_zenoh_key_string(&topic)?;
+        // TODO: the response topic should not be the same as the request topic
+
+        // If the callback still exist, waiting for others to take away.
+        while self
+            .rpc_callback_map
+            .lock()
+            .unwrap()
+            .get(&zenoh_key)
+            .is_none()
+        {
+            task::sleep(Duration::from_millis(1000)).await;
+        }
+        self.rpc_callback_map
+            .lock()
+            .unwrap()
+            .insert(zenoh_key.clone(), listener);
+
+        Ok(zenoh_key)
     }
 }
 
