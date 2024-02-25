@@ -18,6 +18,7 @@ use protobuf::{Enum, Message};
 use std::{
     collections::HashMap,
     sync::{atomic::AtomicU64, Arc, Mutex},
+    time::Duration,
 };
 use up_rust::{
     uprotocol::{Data, UAttributes, UCode, UPayload, UPayloadFormat, UPriority, UStatus, UUri},
@@ -261,6 +262,49 @@ impl UPClientZenoh {
             .res()
             .await
             .map_err(|_| UStatus::fail_with_code(UCode::INTERNAL, "Unable to send with Zenoh"))?;
+
+        Ok(())
+    }
+
+    async fn send_request(
+        &self,
+        zenoh_key: &str,
+        payload: UPayload,
+        attributes: UAttributes,
+    ) -> Result<(), UStatus> {
+        // Get the data from UPayload
+        let Some(Data::Value(buf)) = payload.data else {
+            // TODO: Assume we only have Value here, no reference for shared memory
+            return Err(UStatus::fail_with_code(
+                UCode::INVALID_ARGUMENT,
+                "Invalid data",
+            ));
+        };
+
+        // Serialized UAttributes into protobuf
+        let Ok(attachment) = UPClientZenoh::uattributes_to_attachment(&attributes) else {
+            return Err(UStatus::fail_with_code(
+                UCode::INVALID_ARGUMENT,
+                "Invalid uAttributes",
+            ));
+        };
+
+        let value = Value::new(buf.into()).encoding(Encoding::WithSuffix(
+            KnownEncoding::AppCustom,
+            payload.format.value().to_string().into(),
+        ));
+
+        // TODO: Adjust the timeout
+        let getbuilder = self
+            .session
+            .get(zenoh_key)
+            .with_value(value)
+            .with_attachment(attachment.build())
+            .target(QueryTarget::BestMatching)
+            .timeout(Duration::from_millis(1000));
+
+        // TODO: Retrieve the callback
+        // TODO: Send the get with callback
 
         Ok(())
     }
