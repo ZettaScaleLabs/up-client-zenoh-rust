@@ -13,10 +13,12 @@
 //
 use crate::UPClientZenoh;
 use async_trait::async_trait;
-use std::sync::atomic::Ordering;
+use std::{sync::atomic::Ordering, time::Duration};
 use up_rust::{
     transport::{datamodel::UTransport, validator::Validators},
-    uprotocol::{Data, UCode, UMessage, UMessageType, UPayload, UPayloadFormat, UStatus, UUri},
+    uprotocol::{
+        Data, UAttributes, UCode, UMessage, UMessageType, UPayload, UPayloadFormat, UStatus, UUri,
+    },
     uri::validator::UriValidator,
 };
 use zenoh::{
@@ -25,6 +27,154 @@ use zenoh::{
 };
 
 impl UPClientZenoh {
+    async fn send_publish(
+        &self,
+        zenoh_key: &str,
+        payload: UPayload,
+        attributes: UAttributes,
+    ) -> Result<(), UStatus> {
+        // Get the data from UPayload
+        let Some(Data::Value(buf)) = payload.data else {
+            // TODO: Assume we only have Value here, no reference for shared memory
+            return Err(UStatus::fail_with_code(
+                UCode::INVALID_ARGUMENT,
+                "Invalid data",
+            ));
+        };
+
+        // Serialized UAttributes into protobuf
+        let Ok(attachment) = UPClientZenoh::uattributes_to_attachment(&attributes) else {
+            return Err(UStatus::fail_with_code(
+                UCode::INVALID_ARGUMENT,
+                "Invalid uAttributes",
+            ));
+        };
+
+        let priority =
+            UPClientZenoh::map_zenoh_priority(attributes.priority.enum_value().map_err(|_| {
+                UStatus::fail_with_code(UCode::INVALID_ARGUMENT, "Invalid priority")
+            })?);
+
+        let putbuilder = self
+            .session
+            .put(zenoh_key, buf)
+            .encoding(Encoding::WithSuffix(
+                KnownEncoding::AppCustom,
+                payload.format.value().to_string().into(),
+            ))
+            .priority(priority)
+            .with_attachment(attachment.build());
+
+        // Send data
+        putbuilder
+            .res()
+            .await
+            .map_err(|_| UStatus::fail_with_code(UCode::INTERNAL, "Unable to send with Zenoh"))?;
+
+        Ok(())
+    }
+
+    async fn send_request(
+        &self,
+        zenoh_key: &str,
+        payload: UPayload,
+        attributes: UAttributes,
+    ) -> Result<(), UStatus> {
+        // Get the data from UPayload
+        let Some(Data::Value(buf)) = payload.data else {
+            // TODO: Assume we only have Value here, no reference for shared memory
+            return Err(UStatus::fail_with_code(
+                UCode::INVALID_ARGUMENT,
+                "Invalid data",
+            ));
+        };
+
+        // Serialized UAttributes into protobuf
+        let Ok(attachment) = UPClientZenoh::uattributes_to_attachment(&attributes) else {
+            return Err(UStatus::fail_with_code(
+                UCode::INVALID_ARGUMENT,
+                "Invalid uAttributes",
+            ));
+        };
+
+        let value = Value::new(buf.into()).encoding(Encoding::WithSuffix(
+            KnownEncoding::AppCustom,
+            payload.format.value().to_string().into(),
+        ));
+
+        // TODO: Adjust the timeout
+        let _getbuilder = self
+            .session
+            .get(zenoh_key)
+            .with_value(value)
+            .with_attachment(attachment.build())
+            .target(QueryTarget::BestMatching)
+            .timeout(Duration::from_millis(1000));
+
+        // TODO: Retrieve the callback
+        // TODO: Send the get with callback
+
+        Ok(())
+    }
+
+    async fn send_response(
+        &self,
+        zenoh_key: &str,
+        payload: UPayload,
+        attributes: UAttributes,
+    ) -> Result<(), UStatus> {
+        // Get the data from UPayload
+        let Some(Data::Value(buf)) = payload.data else {
+            // TODO: Assume we only have Value here, no reference for shared memory
+            return Err(UStatus::fail_with_code(
+                UCode::INVALID_ARGUMENT,
+                "Invalid data",
+            ));
+        };
+
+        // Serialized UAttributes into protobuf
+        let Ok(attachment) = UPClientZenoh::uattributes_to_attachment(&attributes) else {
+            return Err(UStatus::fail_with_code(
+                UCode::INVALID_ARGUMENT,
+                "Invalid uAttributes",
+            ));
+        };
+        // Get reqid
+        let reqid = attributes.reqid.to_string();
+
+        // Send back query
+        let value = Value::new(buf.into()).encoding(Encoding::WithSuffix(
+            KnownEncoding::AppCustom,
+            payload.format.value().to_string().into(),
+        ));
+        let reply = Ok(Sample::new(
+            KeyExpr::new(zenoh_key.to_string()).map_err(|_| {
+                UStatus::fail_with_code(UCode::INTERNAL, "Unable to create Zenoh key")
+            })?,
+            value,
+        ));
+        let query = self
+            .query_map
+            .lock()
+            .unwrap()
+            .get(&reqid)
+            .ok_or(UStatus::fail_with_code(
+                UCode::INTERNAL,
+                "query doesn't exist",
+            ))?
+            .clone();
+
+        // Send data
+        query
+            .reply(reply)
+            .with_attachment(attachment.build())
+            .map_err(|_| UStatus::fail_with_code(UCode::INTERNAL, "Unable to add attachment"))?
+            .res()
+            .await
+            .map_err(|_| UStatus::fail_with_code(UCode::INTERNAL, "Unable to reply with Zenoh"))?;
+
+        Ok(())
+    }
     async fn register_publish_listener(
         &self,
         topic: UUri,
@@ -197,8 +347,8 @@ impl UPClientZenoh {
     }
     async fn register_response_listener(
         &self,
-        topic: UUri,
-        listener: Box<dyn Fn(Result<UMessage, UStatus>) + Send + Sync + 'static>,
+        _topic: UUri,
+        _listener: Box<dyn Fn(Result<UMessage, UStatus>) + Send + Sync + 'static>,
     ) -> Result<String, UStatus> {
         Ok(String::from("Not implemented"))
     }
