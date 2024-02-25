@@ -126,7 +126,7 @@ async fn test_rpcserver_register_and_unregister() {
         result,
         Err(UStatus::fail_with_code(
             UCode::INVALID_ARGUMENT,
-            "Listener doesn't exist"
+            "RPC request listener doesn't exist"
         ))
     )
 }
@@ -210,7 +210,8 @@ async fn test_rpc_server_client() {
                     ..
                 } = msg;
                 // Get the UUri
-                let uuri = attributes.clone().unwrap().sink.unwrap();
+                let source = attributes.clone().unwrap().source.unwrap();
+                let sink = attributes.clone().unwrap().sink.unwrap();
                 // Build the payload to send back
                 if let Data::Value(v) = payload.unwrap().data.unwrap() {
                     let value = v.into_iter().map(|c| c as char).collect::<String>();
@@ -227,8 +228,8 @@ async fn test_rpc_server_client() {
                 // Set the attributes type to Response
                 let mut uattributes = attributes.unwrap();
                 uattributes.type_ = UMessageType::UMESSAGE_TYPE_RESPONSE.into();
-                uattributes.sink = Some(uuri.clone()).into();
-                uattributes.source = Some(uuri.clone()).into();
+                uattributes.sink = Some(source.clone()).into();
+                uattributes.source = Some(sink.clone()).into();
                 // Send back result
                 block_on(upclient_server_cloned.send(UMessage {
                     attributes: Some(uattributes).into(),

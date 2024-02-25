@@ -188,6 +188,7 @@ impl UPClientZenoh {
     ) -> Result<(), UStatus> {
         // Get the data from UPayload
         let Some(Data::Value(buf)) = payload.data else {
+            log::error!("send_response: Invalide data");
             // TODO: Assume we only have Value here, no reference for shared memory
             return Err(UStatus::fail_with_code(
                 UCode::INVALID_ARGUMENT,
@@ -197,6 +198,7 @@ impl UPClientZenoh {
 
         // Serialized UAttributes into protobuf
         let Ok(attachment) = UPClientZenoh::uattributes_to_attachment(&attributes) else {
+            log::error!("send_response: Invalide uAttributes");
             return Err(UStatus::fail_with_code(
                 UCode::INVALID_ARGUMENT,
                 "Invalid uAttributes",
@@ -211,7 +213,8 @@ impl UPClientZenoh {
             payload.format.value().to_string().into(),
         ));
         let reply = Ok(Sample::new(
-            KeyExpr::new(zenoh_key.to_string()).map_err(|_| {
+            KeyExpr::new(zenoh_key.to_string()).map_err(|e| {
+                log::error!("Unable to create Zenoh key: {e:?}");
                 UStatus::fail_with_code(UCode::INTERNAL, "Unable to create Zenoh key")
             })?,
             value,
@@ -231,10 +234,17 @@ impl UPClientZenoh {
         query
             .reply(reply)
             .with_attachment(attachment.build())
-            .map_err(|_| UStatus::fail_with_code(UCode::INTERNAL, "Unable to add attachment"))?
+            .map_err(|_| {
+                // TODO: The latest Zenoh version can print error.
+                log::error!("Unable to add attachment");
+                UStatus::fail_with_code(UCode::INTERNAL, "Unable to add attachment")
+            })?
             .res()
             .await
-            .map_err(|_| UStatus::fail_with_code(UCode::INTERNAL, "Unable to reply with Zenoh"))?;
+            .map_err(|e| {
+                log::error!("Unable to reply with Zenoh: {e:?}");
+                UStatus::fail_with_code(UCode::INTERNAL, "Unable to reply with Zenoh")
+            })?;
 
         Ok(())
     }
@@ -421,13 +431,6 @@ impl UTransport for UPClientZenoh {
             UCode::INVALID_ARGUMENT,
             "Invalid uAttributes",
         ))?;
-        let topic = attributes.clone().sink;
-        // Do the validation
-        UriValidator::validate(&topic)
-            .map_err(|_| UStatus::fail_with_code(UCode::INVALID_ARGUMENT, "Invalid topic"))?;
-
-        // Get Zenoh key
-        let zenoh_key = UPClientZenoh::to_zenoh_key_string(&topic)?;
 
         // Check the type of UAttributes (Publish / Request / Response)
         match attributes
@@ -445,6 +448,10 @@ impl UTransport for UPClientZenoh {
                             format!("Wrong Publish UAttributes {e:?}"),
                         )
                     })?;
+                // Get Zenoh key
+                let topic = attributes.clone().sink;
+                let zenoh_key = UPClientZenoh::to_zenoh_key_string(&topic)?;
+                // Send Publish
                 self.send_publish(&zenoh_key, payload, attributes).await
             }
             UMessageType::UMESSAGE_TYPE_REQUEST => {
@@ -457,6 +464,10 @@ impl UTransport for UPClientZenoh {
                             format!("Wrong Request UAttributes {e:?}"),
                         )
                     })?;
+                // Get Zenoh key
+                let topic = attributes.clone().sink;
+                let zenoh_key = UPClientZenoh::to_zenoh_key_string(&topic)?;
+                // Send Request
                 self.send_request(&zenoh_key, payload, attributes).await
             }
             UMessageType::UMESSAGE_TYPE_RESPONSE => {
@@ -469,6 +480,10 @@ impl UTransport for UPClientZenoh {
                             format!("Wrong Response UAttributes {e:?}"),
                         )
                     })?;
+                // Get Zenoh key
+                let topic = attributes.clone().source;
+                let zenoh_key = UPClientZenoh::to_zenoh_key_string(&topic)?;
+                // Send Response
                 self.send_response(&zenoh_key, payload, attributes).await
             }
             UMessageType::UMESSAGE_TYPE_UNSPECIFIED => Err(UStatus::fail_with_code(
