@@ -415,7 +415,7 @@ impl UTransport for UPClientZenoh {
                     })?;
                 self.send_response(&zenoh_key, payload, attributes).await
             }
-            _ => Err(UStatus::fail_with_code(
+            UMessageType::UMESSAGE_TYPE_UNSPECIFIED => Err(UStatus::fail_with_code(
                 UCode::INVALID_ARGUMENT,
                 "Wrong Message type in UAttributes",
             )),

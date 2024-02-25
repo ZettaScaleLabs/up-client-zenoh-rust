@@ -72,13 +72,13 @@ impl UPClientZenoh {
         // If it exists, we prepend it before the Zenoh key
         if micro_uuri.len() > 8 {
             micro_zenoh_key += &micro_uuri[8..]
-                .into_iter()
+                .iter()
                 .fold(String::new(), |s, c| s + &format!("{c:02x}"));
             micro_zenoh_key += "/";
         }
         // The rest part of UUri
         micro_zenoh_key += &micro_uuri[..8]
-            .into_iter()
+            .iter()
             .fold(String::new(), |s, c| s + &format!("{c:02x}"));
         Ok(micro_zenoh_key)
     }
