@@ -94,7 +94,7 @@ async fn test_utransport_register_and_unregister() {
         result,
         Err(UStatus::fail_with_code(
             UCode::INVALID_ARGUMENT,
-            "Listener doesn't exist"
+            "Publish listener doesn't exist"
         ))
     )
 }

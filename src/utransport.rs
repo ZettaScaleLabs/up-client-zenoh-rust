@@ -12,7 +12,6 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use crate::UPClientZenoh;
-use async_std::task;
 use async_trait::async_trait;
 use std::{sync::atomic::Ordering, time::Duration};
 use up_rust::{
@@ -409,32 +408,6 @@ impl UPClientZenoh {
 
         Ok(hashmap_key)
     }
-    async fn register_response_listener(
-        &self,
-        topic: UUri,
-        listener: Box<dyn Fn(Result<UMessage, UStatus>) + Send + Sync + 'static>,
-    ) -> Result<String, UStatus> {
-        // Get Zenoh key
-        let zenoh_key = UPClientZenoh::to_zenoh_key_string(&topic)?;
-        // TODO: the response topic should not be the same as the request topic
-
-        // If the callback still exist, waiting for others to take away.
-        while self
-            .rpc_callback_map
-            .lock()
-            .unwrap()
-            .get(&zenoh_key)
-            .is_none()
-        {
-            task::sleep(Duration::from_millis(1000)).await;
-        }
-        self.rpc_callback_map
-            .lock()
-            .unwrap()
-            .insert(zenoh_key.clone(), listener);
-
-        Ok(zenoh_key)
-    }
 }
 
 #[async_trait]
@@ -522,8 +495,16 @@ impl UTransport for UPClientZenoh {
             .map_err(|_| UStatus::fail_with_code(UCode::INVALID_ARGUMENT, "Invalid topic"))?;
 
         if UriValidator::is_rpc_response(&topic) {
-            // RPC response
-            self.register_response_listener(topic, listener).await
+            // Get Zenoh key
+            let zenoh_key = UPClientZenoh::to_zenoh_key_string(&topic)?;
+            // TODO: the response topic should not be the same as the request topic
+
+            self.rpc_callback_map
+                .lock()
+                .unwrap()
+                .insert(zenoh_key.clone(), listener);
+
+            Ok(zenoh_key)
         } else if UriValidator::is_rpc_method(&topic) {
             // RPC request
             self.register_request_listener(topic, listener).await
@@ -539,14 +520,49 @@ impl UTransport for UPClientZenoh {
             .map_err(|_| UStatus::fail_with_code(UCode::INVALID_ARGUMENT, "Invalid topic"))?;
         // TODO: Check whether we still need topic or not (Compare topic with listener?)
 
-        if !self.subscriber_map.lock().unwrap().contains_key(listener) {
-            return Err(UStatus::fail_with_code(
-                UCode::INVALID_ARGUMENT,
-                "Listener doesn't exist",
-            ));
+        if UriValidator::is_rpc_response(&topic) {
+            // RPC response
+            if self
+                .rpc_callback_map
+                .lock()
+                .unwrap()
+                .remove(listener)
+                .is_none()
+            {
+                return Err(UStatus::fail_with_code(
+                    UCode::INVALID_ARGUMENT,
+                    "RPC response callback doesn't exist",
+                ));
+            }
+        } else if UriValidator::is_rpc_method(&topic) {
+            // RPC request
+            if self
+                .queryable_map
+                .lock()
+                .unwrap()
+                .remove(listener)
+                .is_none()
+            {
+                return Err(UStatus::fail_with_code(
+                    UCode::INVALID_ARGUMENT,
+                    "RPC request listener doesn't exist",
+                ));
+            }
+        } else {
+            // Normal publish
+            if self
+                .subscriber_map
+                .lock()
+                .unwrap()
+                .remove(listener)
+                .is_none()
+            {
+                return Err(UStatus::fail_with_code(
+                    UCode::INVALID_ARGUMENT,
+                    "Publish listener doesn't exist",
+                ));
+            }
         }
-
-        self.subscriber_map.lock().unwrap().remove(listener);
         Ok(())
     }
 }
