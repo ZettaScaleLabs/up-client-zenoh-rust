@@ -517,7 +517,7 @@ impl UTransport for UPClientZenoh {
         listener: Box<dyn Fn(Result<UMessage, UStatus>) + Send + Sync + 'static>,
     ) -> Result<String, UStatus> {
         let listener = Arc::new(listener);
-        if topic.authority.0.is_some() && topic.entity.0.is_none() && topic.resource.0.is_none() {
+        if topic.authority.is_some() && topic.entity.is_none() && topic.resource.is_none() {
             // This is special UUri which means we need to register both listeners
             // They should return the same String, so I just pick publish one to return
             // RPC request
@@ -552,7 +552,7 @@ impl UTransport for UPClientZenoh {
     }
 
     async fn unregister_listener(&self, topic: UUri, listener: &str) -> Result<(), UStatus> {
-        if topic.authority.0.is_some() && topic.entity.0.is_none() && topic.resource.0.is_none() {
+        if topic.authority.is_some() && topic.entity.is_none() && topic.resource.is_none() {
             // This is special UUri which means we need to unregister both listeners
             // RPC request
             if self
