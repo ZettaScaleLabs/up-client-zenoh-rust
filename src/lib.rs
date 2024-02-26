@@ -263,7 +263,7 @@ impl UPClientZenoh {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use up_rust::uprotocol::{UEntity, UResource, UUri};
+    use up_rust::uprotocol::{uri::uauthority::Number, UAuthority, UEntity, UResource, UUri};
 
     #[test]
     fn test_to_zenoh_key_string() {
@@ -289,6 +289,20 @@ mod tests {
         assert_eq!(
             UPClientZenoh::to_zenoh_key_string(&uuri).unwrap(),
             String::from("up/0100162e04d20100")
+        );
+        // create special uuri for test
+        let uuri = UUri {
+            authority: Some(UAuthority {
+                name: Some("UAuthName".to_string()),
+                number: Some(Number::Id("UAuthID".to_string().into_bytes())),
+                ..Default::default()
+            })
+            .into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            UPClientZenoh::to_zenoh_key_string(&uuri).unwrap(),
+            String::from("up/0755417574684944/**")
         );
     }
 }
