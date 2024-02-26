@@ -519,13 +519,16 @@ impl UTransport for UPClientZenoh {
         let listener = Arc::new(listener);
         if topic.authority.is_some() && topic.entity.is_none() && topic.resource.is_none() {
             // This is special UUri which means we need to register both listeners
-            // They should return the same String, so I just pick publish one to return
             // RPC request
-            self.register_request_listener(topic.clone(), listener.clone())
+            let mut listener_str = self
+                .register_request_listener(topic.clone(), listener.clone())
                 .await?;
             // Normal publish
-            self.register_publish_listener(topic, listener.clone())
-                .await
+            listener_str += "&";
+            listener_str += &self
+                .register_publish_listener(topic, listener.clone())
+                .await?;
+            Ok(listener_str)
         } else {
             // Do the validation
             UriValidator::validate(&topic)
@@ -552,8 +555,50 @@ impl UTransport for UPClientZenoh {
     }
 
     async fn unregister_listener(&self, topic: UUri, listener: &str) -> Result<(), UStatus> {
+        let mut pub_listener_str: Option<&str> = None;
+        let mut req_listener_str: Option<&str> = None;
+        let mut resp_listener_str: Option<&str> = None;
+
         if topic.authority.is_some() && topic.entity.is_none() && topic.resource.is_none() {
             // This is special UUri which means we need to unregister both listeners
+            let listener_vec = listener.split('&').collect::<Vec<_>>();
+            if listener_vec.len() != 2 {
+                return Err(UStatus::fail_with_code(
+                    UCode::INVALID_ARGUMENT,
+                    "Invalid listener string",
+                ));
+            }
+            req_listener_str = Some(listener_vec[0]);
+            pub_listener_str = Some(listener_vec[1]);
+        } else {
+            // Do the validation
+            UriValidator::validate(&topic)
+                .map_err(|_| UStatus::fail_with_code(UCode::INVALID_ARGUMENT, "Invalid topic"))?;
+
+            if UriValidator::is_rpc_response(&topic) {
+                resp_listener_str = Some(listener);
+            } else if UriValidator::is_rpc_method(&topic) {
+                req_listener_str = Some(listener);
+            } else {
+                pub_listener_str = Some(listener);
+            }
+        }
+        if resp_listener_str.is_some() {
+            // RPC response
+            if self
+                .rpc_callback_map
+                .lock()
+                .unwrap()
+                .remove(listener)
+                .is_none()
+            {
+                return Err(UStatus::fail_with_code(
+                    UCode::INVALID_ARGUMENT,
+                    "RPC response callback doesn't exist",
+                ));
+            }
+        }
+        if req_listener_str.is_some() {
             // RPC request
             if self
                 .queryable_map
@@ -567,6 +612,8 @@ impl UTransport for UPClientZenoh {
                     "RPC request listener doesn't exist",
                 ));
             }
+        }
+        if pub_listener_str.is_some() {
             // Normal publish
             if self
                 .subscriber_map
@@ -579,54 +626,6 @@ impl UTransport for UPClientZenoh {
                     UCode::INVALID_ARGUMENT,
                     "Publish listener doesn't exist",
                 ));
-            }
-        } else {
-            // Do the validation
-            UriValidator::validate(&topic)
-                .map_err(|_| UStatus::fail_with_code(UCode::INVALID_ARGUMENT, "Invalid topic"))?;
-
-            if UriValidator::is_rpc_response(&topic) {
-                // RPC response
-                if self
-                    .rpc_callback_map
-                    .lock()
-                    .unwrap()
-                    .remove(listener)
-                    .is_none()
-                {
-                    return Err(UStatus::fail_with_code(
-                        UCode::INVALID_ARGUMENT,
-                        "RPC response callback doesn't exist",
-                    ));
-                }
-            } else if UriValidator::is_rpc_method(&topic) {
-                // RPC request
-                if self
-                    .queryable_map
-                    .lock()
-                    .unwrap()
-                    .remove(listener)
-                    .is_none()
-                {
-                    return Err(UStatus::fail_with_code(
-                        UCode::INVALID_ARGUMENT,
-                        "RPC request listener doesn't exist",
-                    ));
-                }
-            } else {
-                // Normal publish
-                if self
-                    .subscriber_map
-                    .lock()
-                    .unwrap()
-                    .remove(listener)
-                    .is_none()
-                {
-                    return Err(UStatus::fail_with_code(
-                        UCode::INVALID_ARGUMENT,
-                        "Publish listener doesn't exist",
-                    ));
-                }
             }
         }
         Ok(())

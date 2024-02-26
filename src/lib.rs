@@ -74,7 +74,9 @@ impl UPClientZenoh {
         if let Some(authority) = uri.authority.as_ref() {
             if authority.has_id() {
                 let id = authority.id().to_vec();
-                let len = id.len() as u8;
+                let len = u8::try_from(id.len()).map_err(|_| {
+                    UStatus::fail_with_code(UCode::INVALID_ARGUMENT, "Wrong authority")
+                })?;
                 buf.write(&[len]).map_err(|_| {
                     UStatus::fail_with_code(UCode::INVALID_ARGUMENT, "Wrong authority")
                 })?;
@@ -97,7 +99,7 @@ impl UPClientZenoh {
     fn to_zenoh_key_string(uri: &UUri) -> Result<String, UStatus> {
         let mut micro_zenoh_key = String::from("up/");
         if uri.authority.is_some() && uri.entity.is_none() && uri.resource.is_none() {
-            micro_zenoh_key += &UPClientZenoh::get_uauth_from_uuri(&uri)?;
+            micro_zenoh_key += &UPClientZenoh::get_uauth_from_uuri(uri)?;
             micro_zenoh_key += "/**";
         } else {
             let micro_uuri = MicroUriSerializer::serialize(uri).map_err(|_| {
