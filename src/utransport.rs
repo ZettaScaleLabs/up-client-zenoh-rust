@@ -104,11 +104,19 @@ impl UPClientZenoh {
         ));
 
         // Retrieve the callback
+        let resp_listener_str = attributes
+            .source
+            .0
+            .ok_or(UStatus::fail_with_code(
+                UCode::INVALID_ARGUMENT,
+                "Lack of source address",
+            ))?
+            .to_string();
         let resp_callback = self
             .rpc_callback_map
             .lock()
             .unwrap()
-            .remove(zenoh_key)
+            .remove(&resp_listener_str)
             .ok_or(UStatus::fail_with_code(
                 UCode::INTERNAL,
                 "Unable to get callback",
@@ -510,16 +518,13 @@ impl UTransport for UPClientZenoh {
             .map_err(|_| UStatus::fail_with_code(UCode::INVALID_ARGUMENT, "Invalid topic"))?;
 
         if UriValidator::is_rpc_response(&topic) {
-            // Get Zenoh key
-            let zenoh_key = UPClientZenoh::to_zenoh_key_string(&topic)?;
-            // TODO: the response topic should not be the same as the request topic
-
+            let resp_listener_str = topic.to_string();
             self.rpc_callback_map
                 .lock()
                 .unwrap()
-                .insert(zenoh_key.clone(), listener);
+                .insert(resp_listener_str.clone(), listener);
 
-            Ok(zenoh_key)
+            Ok(resp_listener_str)
         } else if UriValidator::is_rpc_method(&topic) {
             // RPC request
             self.register_request_listener(topic, listener).await
