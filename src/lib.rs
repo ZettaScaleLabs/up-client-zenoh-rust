@@ -43,7 +43,7 @@ pub struct UPClientZenoh {
     // Save the reqid to be able to send back response
     query_map: Arc<Mutex<HashMap<String, Query>>>,
     // Save the callback for RPC response
-    rpc_callback_map: Arc<Mutex<HashMap<String, UtransportListener>>>,
+    rpc_callback_map: Arc<Mutex<HashMap<String, Arc<UtransportListener>>>>,
     callback_counter: AtomicU64,
 }
 
