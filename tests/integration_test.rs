@@ -241,14 +241,14 @@ async fn test_publish_and_subscribe() {
 async fn test_rpc_server_client() {
     let upclient_client = UPClientZenoh::new(Config::default()).await.unwrap();
     let upclient_server = Arc::new(UPClientZenoh::new(Config::default()).await.unwrap());
-    let client_data = String::from("This is the client data");
-    let server_data = String::from("This is the server data");
+    let request_data = String::from("This is the request data");
+    let response_data = String::from("This is the response data");
     let uuri = create_rpcserver_uuri();
 
     // setup RpcServer callback
     let upclient_server_cloned = upclient_server.clone();
-    let server_data_cloned = server_data.clone();
-    let client_data_cloned = client_data.clone();
+    let response_data_cloned = response_data.clone();
+    let request_data_cloned = request_data.clone();
     let callback = move |result: Result<UMessage, UStatus>| {
         match result {
             Ok(msg) => {
@@ -263,14 +263,14 @@ async fn test_rpc_server_client() {
                 // Build the payload to send back
                 if let Data::Value(v) = payload.unwrap().data.unwrap() {
                     let value = v.into_iter().map(|c| c as char).collect::<String>();
-                    assert_eq!(client_data_cloned, value);
+                    assert_eq!(request_data_cloned, value);
                 } else {
                     panic!("The message should be Data::Value type.");
                 }
                 let upayload = UPayload {
                     length: Some(0),
                     format: UPayloadFormat::UPAYLOAD_FORMAT_TEXT.into(),
-                    data: Some(Data::Value(server_data_cloned.as_bytes().to_vec())),
+                    data: Some(Data::Value(response_data_cloned.as_bytes().to_vec())),
                     ..Default::default()
                 };
                 // Set the attributes type to Response
@@ -298,18 +298,11 @@ async fn test_rpc_server_client() {
     // Need some time for queryable to run
     task::sleep(time::Duration::from_millis(1000)).await;
 
-    // TODO: Need to check whether we don't need uattributes.
-    //// Create uattributes
-    //// TODO: Check TTL (Should TTL map to Zenoh's timeout?)
-    //let attributes = UAttributesBuilder::request(UPriority::UPRIORITY_CS4, uuri.clone(), 100)
-    //    .with_reqid(UUIDv8Builder::new().build())
-    //    .build();
-
     // Run RpcClient
     let payload = UPayload {
         length: Some(0),
         format: UPayloadFormat::UPAYLOAD_FORMAT_TEXT.into(),
-        data: Some(Data::Value(client_data.as_bytes().to_vec())),
+        data: Some(Data::Value(request_data.as_bytes().to_vec())),
         ..Default::default()
     };
     let result = upclient_client
@@ -319,7 +312,7 @@ async fn test_rpc_server_client() {
     // Process the result
     if let Data::Value(v) = result.unwrap().payload.unwrap().data.unwrap() {
         let value = v.into_iter().map(|c| c as char).collect::<String>();
-        assert_eq!(server_data, value);
+        assert_eq!(response_data, value);
     } else {
         panic!("Failed to get result from invoke_method.");
     }
