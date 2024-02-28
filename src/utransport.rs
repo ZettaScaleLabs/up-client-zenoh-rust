@@ -522,7 +522,7 @@ impl UTransport for UPClientZenoh {
     ) -> Result<String, UStatus> {
         let listener = Arc::new(listener);
         if topic.authority.is_some() && topic.entity.is_none() && topic.resource.is_none() {
-            // This is special UUri which means we need to register both listeners
+            // This is special UUri which means we need to register for all of Publish, Request, and Response
             // RPC response
             let mut listener_str = format!(
                 "{}_{:X}",
