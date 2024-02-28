@@ -167,9 +167,9 @@ impl UPClientZenoh {
                         ..Default::default()
                     })
                 }
-                Err(_) => Err(UStatus::fail_with_code(
+                Err(e) => Err(UStatus::fail_with_code(
                     UCode::INTERNAL,
-                    "Error while parsing Zenoh reply",
+                    format!("Error while parsing Zenoh reply: {e:?}"),
                 )),
             };
             resp_callback(msg);
@@ -255,7 +255,10 @@ impl UPClientZenoh {
             .await
             .map_err(|e| {
                 log::error!("Unable to reply with Zenoh: {e:?}");
-                UStatus::fail_with_code(UCode::INTERNAL, "Unable to reply with Zenoh")
+                UStatus::fail_with_code(
+                    UCode::INTERNAL,
+                    format!("Unable to reply with Zenoh: {e:?}"),
+                )
             })?;
 
         Ok(())
