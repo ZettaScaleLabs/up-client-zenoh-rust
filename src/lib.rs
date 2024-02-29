@@ -95,12 +95,10 @@ impl UPClientZenoh {
             .fold(String::new(), |s, c| s + &format!("{c:02x}")))
     }
 
-    // The UURI format should be "up/<UAuthority id or ip>/<the rest of UUri>"
+    // The UURI format should be "upr/<UAuthority id or ip>/<the rest of remote UUri>" or "upl/<local UUri>"
     fn to_zenoh_key_string(uri: &UUri) -> Result<String, UStatus> {
-        let mut micro_zenoh_key = String::from("up/");
         if uri.authority.is_some() && uri.entity.is_none() && uri.resource.is_none() {
-            micro_zenoh_key += &UPClientZenoh::get_uauth_from_uuri(uri)?;
-            micro_zenoh_key += "/**";
+            Ok(String::from("upr/") + &UPClientZenoh::get_uauth_from_uuri(uri)? + "/**")
         } else {
             let micro_uuri = MicroUriSerializer::serialize(uri).map_err(|_| {
                 UStatus::fail_with_code(
@@ -108,20 +106,23 @@ impl UPClientZenoh {
                     "Unable to serialize into micro format",
                 )
             })?;
-            // The part of UUri which is larger than 8 bytes belongs to uAuthority
-            // If it exists, we prepend it before the Zenoh key
-            if micro_uuri.len() > 8 {
-                micro_zenoh_key += &micro_uuri[8..]
-                    .iter()
-                    .fold(String::new(), |s, c| s + &format!("{c:02x}"));
-                micro_zenoh_key += "/";
-            }
-            // The rest part of UUri
+            // If the UUri is larger than 8 bytes, then it should be remote UUri with UAuthority
+            // We should prepend it to the Zenoh key.
+            let mut micro_zenoh_key = if micro_uuri.len() > 8 {
+                String::from("upr/")
+                    + &micro_uuri[8..]
+                        .iter()
+                        .fold(String::new(), |s, c| s + &format!("{c:02x}"))
+                    + "/"
+            } else {
+                String::from("upl/")
+            };
+            // The rest part of UUri (UEntity + UResource)
             micro_zenoh_key += &micro_uuri[..8]
                 .iter()
                 .fold(String::new(), |s, c| s + &format!("{c:02x}"));
+            Ok(micro_zenoh_key)
         }
-        Ok(micro_zenoh_key)
     }
 
     #[allow(clippy::match_same_arms)]
@@ -288,7 +289,7 @@ mod tests {
         };
         assert_eq!(
             UPClientZenoh::to_zenoh_key_string(&uuri).unwrap(),
-            String::from("up/0100162e04d20100")
+            String::from("upl/0100162e04d20100")
         );
         // create special uuri for test
         let uuri = UUri {
@@ -302,7 +303,7 @@ mod tests {
         };
         assert_eq!(
             UPClientZenoh::to_zenoh_key_string(&uuri).unwrap(),
-            String::from("up/060102030a0b0c/**")
+            String::from("upr/060102030a0b0c/**")
         );
     }
 }
