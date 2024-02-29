@@ -34,6 +34,8 @@ use zenoh::{
 
 pub type UtransportListener = Box<dyn Fn(Result<UMessage, UStatus>) + Send + Sync + 'static>;
 
+const UATTRIBUTE_VERSION: u8 = 1;
+
 pub struct ZenohListener {}
 pub struct UPClientZenoh {
     session: Arc<Session>,
@@ -150,7 +152,8 @@ impl UPClientZenoh {
 
     fn uattributes_to_attachment(uattributes: &UAttributes) -> anyhow::Result<AttachmentBuilder> {
         let mut attachment = AttachmentBuilder::new();
-        attachment.insert("uattr", &uattributes.write_to_bytes()?);
+        attachment.insert("", &UATTRIBUTE_VERSION.to_le_bytes());
+        attachment.insert("", &uattributes.write_to_bytes()?);
         /* TODO: We send the whole uattributes directly for the time being and do the benchmark later.
         attachment.insert("id", &uattributes.id.write_to_bytes()?);
         attachment.insert(
@@ -186,15 +189,33 @@ impl UPClientZenoh {
     }
 
     fn attachment_to_uattributes(attachment: &Attachment) -> anyhow::Result<UAttributes> {
-        let uattributes = UAttributes::parse_from_bytes(
-            attachment
-                .get(&"uattr".as_bytes())
-                .ok_or(UStatus::fail_with_code(
+        let mut attachment_iter = attachment.iter();
+        if let Some((_, value)) = attachment_iter.next() {
+            let version = *value.as_slice().first().ok_or(UStatus::fail_with_code(
+                UCode::INTERNAL,
+                "uAttributes version is empty",
+            ))?;
+            if version != 1 {
+                return Err(UStatus::fail_with_code(
                     UCode::INTERNAL,
-                    "Unable to get uAttributes",
-                ))?
-                .as_slice(),
-        )?;
+                    "uAttributes version should be 1",
+                )
+                .into());
+            }
+        } else {
+            return Err(UStatus::fail_with_code(
+                UCode::INTERNAL,
+                "Unable to get the uAttributes version",
+            )
+            .into());
+        }
+        let uattributes = if let Some((_, value)) = attachment_iter.next() {
+            UAttributes::parse_from_bytes(value.as_slice())?
+        } else {
+            return Err(
+                UStatus::fail_with_code(UCode::INTERNAL, "Unable to get the uAttributes").into(),
+            );
+        };
         /* TODO: We send the whole uattributes directly for the time being and do the benchmark later.
         let mut uattributes = UAttributes::new();
         if let Some(id) = attachment.get(&"id".as_bytes()) {
